@@ -1,6 +1,7 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 3.10)
 project(dyserver_example)
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_BUILD_TYPE DEBUG)
 
 #[[
 处理子模块，生成静态库

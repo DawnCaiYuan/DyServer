@@ -1,4 +1,5 @@
-#pragma once
+#ifndef __DY_SINGLETON__
+#define __DY_SINGLETON__
 #include <iostream>
 #include <memory>
 
@@ -9,24 +10,23 @@ namespace dysv{
      * @tparam T 
      */
     template<class T>
-    class Singleton final{
+    class Singleton{
     public:
         static T* GetInstance(){
             static T ins;
             return &ins;
         }
-    private:
-        Singleton() = default;
     };
 
+
     template<class T>
-    class SingletonPtr final{
+    class SingletonPtr{
     public:
         static std::shared_ptr<T> GetInstance(){
-            static auto ins = std::make_shared<T>();
+            static std::shared_ptr<T> ins(new T);
             return ins;
         }
-    private:
-        SingletonPtr() = default;
     };
 } // namespace dysv
+
+#endif

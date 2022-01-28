@@ -1,5 +1,4 @@
-#ifndef __DY_SINGLETON__
-#define __DY_SINGLETON__
+#pragma once
 #include <iostream>
 #include <memory>
 
@@ -7,7 +6,7 @@ namespace dysv{
     /**
      * @brief 简单封装实现单例。Singleton::GetInstance()返回原生指针。
      * 
-     * @tparam T 
+     * @tparam T 单例类型
      */
     template<class T>
     class Singleton{
@@ -18,7 +17,11 @@ namespace dysv{
         }
     };
 
-
+    /**
+     * @brief 简单封装实现单例。Singleton::GetInstance()返回shared_ptr。
+     * 
+     * @tparam T 单例类型
+     */
     template<class T>
     class SingletonPtr{
     public:
@@ -28,5 +31,3 @@ namespace dysv{
         }
     };
 } // namespace dysv
-
-#endif

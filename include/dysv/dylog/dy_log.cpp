@@ -4,13 +4,13 @@ namespace dysv{
     #define FOMATE_STR_BUFFER_SIZE  4096
 
     /*******************Interface Method******************************************/
-    void trace(const std::string& str){
-        DY_LOG_TRACE(str);
-    }
+    // void trace(const std::string& str){
+    //     DY_LOG_TRACE(str);
+    // }
 
-    void warn(const std::string& str){
-        DY_LOG_WARN(str);
-    }
+    // void warn(const std::string& str){
+    //     DY_LOG_WARN(str);
+    // }
 
     /*********************namespace level**************************************/
     namespace level{
@@ -119,49 +119,56 @@ namespace dysv{
         }
     } // end of namespace placeholder
 
-    /*******************class LogAddtionInfo***********************************/
-    LogAddtionInfo::LogAddtionInfo(const std::string& file, uint64_t line)
-                                    : m_file_name(file), m_line(line){
+    /*******************class LogAdditionInfo***********************************/
+    LogAdditionInfo::LogAdditionInfo(const std::string& file, uint64_t line)
+                                    : m_file_name(file), m_line_num(line){
         m_thread_id = std::this_thread::get_id();
         m_time = time(0);
         m_elapse = 0;
     }
-    std::string LogAddtionInfo::GetFileName() const {return m_file_name;}
-    std::string LogAddtionInfo::GetLineNumber() const{ return m_line;}
-    std::string LogAddtionInfo::GetThreadId() const{return m_thread_id;}
-    std::string LogAddtionInfo::GetDate() const{return "YYYY/MM/DD";}
-    std::string LogAddtionInfo::GetHours() const{return "HH";}
-    std::string LogAddtionInfo::GetMinutes() const{return "MM"};
-    std::string LogAddtionInfo::GetSeconds() const{return "SS"};
-    std::string LogAddtionInfo::GetMilliseconds() const{return "sss"};
-    std::string LogAddtionInfo::GetAdditionInfoByPlaceholder(char plchld) const{
+    std::string LogAdditionInfo::GetFileName() const {return m_file_name;}
+    std::string LogAdditionInfo::GetLineNumber() const{ return std::to_string(m_line_num);}
+    std::string LogAdditionInfo::GetThreadId() const{
+        std::stringstream ss;
+        ss << m_thread_id;
+        return ss.str();
+    }
+    std::string LogAdditionInfo::GetDate() const{return "YYYY/MM/DD";}
+    std::string LogAdditionInfo::GetHours() const{return "HH";}
+    std::string LogAdditionInfo::GetMinutes() const{return "MM";}
+    std::string LogAdditionInfo::GetSeconds() const{return "SS";}
+    std::string LogAdditionInfo::GetMilliseconds() const{return "sss";}
+
+
+    std::string LogAdditionInfo::GetAdditionInfoByPlaceholder(char plchld) const{
         return GetAdditionInfoByPlaceholder(placeholder::to_enum(plchld));
     }
-    std::string LogAddtionInfo::GetAdditionInfoByPlaceholder(PlaceholderType plchld) const{
-        using PlcFunc = std::string (*)();
-        using PairOfHoldAndFunc = std::pair<PlaceholderType, PlcFunc>;
-        static std::vector<pairOfHoldAndFunc> s_placeholder2func = {
-            {placeholder::n_NEW_LINE,       []() -> std::string {return "\n";}},
-            {placeholder::t_TAB,            []() -> std::string {return "\t";}},
-            {placeholder::T_THREAD_ID,      GetThreadId},
-            {placeholder::F_FILE_NAME,      GetFileName},
-            {placeholder::L_LINE,           GetLineNumber},
-            {placeholder::P_PRIORITY,       []() -> std::string {return "Unsupported"},
-            {placeholder::C_CONTENT,        []() -> std::string {return "Unsupported"},
-            {placeholder::D_DATE,           GetDate},
-            {placeholder::H_HOUR,           GetHours},
-            {placeholder::M_MINUTE,         GetMinutes},
-            {placeholder::S_SECOND,         GetSeconds},
-            {placeholder::s_MILLISECOND,    GetMilliseconds},
-            {placeholder::MAX_PATTERN,      []() -> std::string {return "Unsupported"},
+
+    std::string LogAdditionInfo::GetAdditionInfoByPlaceholder(placeholder::PlaceholderType plchld) const{
+        using PlcFunc = std::function<std::string(void)>;
+        using PairOfHoldAndFunc = std::pair<placeholder::PlaceholderType, PlcFunc>;
+        static std::vector<PairOfHoldAndFunc> s_placeholder2func = {
+            std::make_pair(placeholder::n_NEW_LINE,       []() -> std::string {return "\n";}),
+            std::make_pair(placeholder::t_TAB,            []() -> std::string {return "\t";}),
+            std::make_pair(placeholder::T_THREAD_ID,      std::bind(&LogAdditionInfo::GetThreadId, this)),
+            std::make_pair(placeholder::F_FILE_NAME,      std::bind(&LogAdditionInfo::GetFileName, this)),
+            std::make_pair(placeholder::L_LINE,           std::bind(&LogAdditionInfo::GetLineNumber, this)),
+            std::make_pair(placeholder::P_PRIORITY,       []() -> std::string {return "Unsupported";}),
+            std::make_pair(placeholder::C_CONTENT,        []() -> std::string {return "Unsupported";}),
+            std::make_pair(placeholder::D_DATE,           std::bind(&LogAdditionInfo::GetDate, this)),
+            std::make_pair(placeholder::H_HOUR,           std::bind(&LogAdditionInfo::GetHours,this)),
+            std::make_pair(placeholder::M_MINUTE,         std::bind(&LogAdditionInfo::GetMinutes,this)),
+            std::make_pair(placeholder::S_SECOND,         std::bind(&LogAdditionInfo::GetSeconds,this)),
+            std::make_pair(placeholder::s_MILLISECOND,    std::bind(&LogAdditionInfo::GetMilliseconds,this)),
+            std::make_pair(placeholder::MAX_PATTERN,      []() -> std::string {return "Unsupported";}),
         };
         auto target = std::lower_bound(s_placeholder2func.begin(), s_placeholder2func.end(), 
                                         plchld, 
                                         [](const PairOfHoldAndFunc& a, placeholder::PlaceholderType b)->bool{
                                             return a.first < b;
                                         });
-        if(target == s_pl_handles.end() || target.first != plchld){
-            std::cout << ("Unspported type" + std::string(1, placeholder::to_char(pl)));
+        if(target == s_placeholder2func.end() || target->first != plchld){
+            std::cout << ("Unspported type" + std::string(1, placeholder::to_char(plchld)));
             return "Unsupported";
         }
         return (target->second)();
@@ -192,7 +199,7 @@ namespace dysv{
                     ans += level::to_string(lv);
                 }
                 else{
-                    ans += other_info.GetAdditionInfoByPlaceholder(plType);
+                    ans += other_info->GetAdditionInfoByPlaceholder(plType);
                 }
                 i++;
             }else{
@@ -205,19 +212,19 @@ namespace dysv{
     std::string LoggerPattern::FormatLog(const std::string &org_str, ...){
         va_list strArgs;
         va_start(strArgs, org_str);
-        string ans = FormatLog(org_str, strArgs);
+        std::string ans = FormatLog(org_str, strArgs);
         va_end(strArgs);
         return ans;
     }
 
     std::string LoggerPattern::FormatLog(const std::string &org_str, va_list strArgs){
         char buffer[FOMATE_STR_BUFFER_SIZE];
-        int rc = vsprintf(buffer, org_str, strArgs);
+        int rc = vsprintf(buffer, org_str.c_str(), strArgs);
         if(rc < 0){
             // ERROR. TODO
-            return;
+            return "";
         }
-        string content(buffer);
+        std::string content(buffer);
         return content;
     }
 
@@ -225,7 +232,7 @@ namespace dysv{
         return DEFAULT_PATTERN_STR;
     }
 
-    void LoggerPattern::SetPatternStr(const std::string & str)){
+    void LoggerPattern::SetPatternStr(const std::string & str){
         m_pattern_str = str;
     }
     
@@ -243,7 +250,7 @@ namespace dysv{
         Logger::Reset();
     }
 
-    LoggerPattern::ptr Logger::GetPattern() const { return m_pattern; }
+    LoggerPattern::ptr Logger::GetPattern() { return m_pattern; }
     void Logger::SetPattern(const std::string& placeholder){ 
         // TODO
     }
@@ -276,8 +283,8 @@ namespace dysv{
         return m_name;
     }
 
-    void Logger::AddSink(LoggerSink::ptr sink){
-        m_sinks.push_back(sink);
+    void Logger::AddSink(LoggerSinkInterface::ptr sink){
+        m_sinks.insert(std::make_pair(sink->GetName(), sink));
     }
 
     /**
@@ -292,7 +299,7 @@ namespace dysv{
      * @param org_str 日志内容。例如,"Year %d, hello %s".
      * @param ... 日志内容所需信息。例如, "2022", "dawn cy".
      */
-    void Logger::Log(LogAddtionInfo::ptr other_info, 
+    void Logger::Log(LogAdditionInfo::ptr other_info, 
                         level::LevelEnum lv, 
                         const std::string& org_str, ...){
         if(m_sinks.empty() || lv < m_level){
@@ -311,11 +318,16 @@ namespace dysv{
     }
 
     /*********************class LoggerSinkInterface**************************************/
-    LoggerSinkInterface::GetName(){
+    LoggerSinkInterface::LoggerSinkInterface(){
         m_stream = &std::cout;
+        m_name = DEFAULT_LOGGER_NAME;
     }
 
-    void LoggerSink::Sink(const std::string& str){
+    std::string LoggerSinkInterface::GetName(){
+        return m_name;
+    }
+
+    void LoggerSinkInterface::Sink(const std::string& str){
         (*m_stream) << str << std::endl;
     }
 
@@ -335,7 +347,7 @@ namespace dysv{
         }
         m_default_logger = std::make_shared<dysv::Logger>(DEFAULT_LOGGER_NAME);
         
-        m_default_logger->AddSink(std::make_shared<LoggerSink>());
+        m_default_logger->AddSink(std::make_shared<LoggerSinkInterface>());
         m_loggers[m_default_logger->GetName()] = m_default_logger;
     }
 

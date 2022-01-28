@@ -14,6 +14,7 @@
 #include <sys/syscall.h>
 #include <algorithm>
 #include <thread>
+#include <functional>
 #include "../common/dy_singleton.hpp"
 
 /**
@@ -37,24 +38,6 @@
 
 namespace dysv
 {
-    // log with format
-#define DEFAULT_LOGGER_NAME     "__root__"
-#define STD_COUT                "__stdout__"
-#define DEFAULT_LOGGER          (dysv::LoggerMgr::GetInstance()->GetDefaultLog())
-#define DY_LOG_LEVEL(lv, txt, ...)   (DEFAULT_LOGGER->Log(std::make_shared<LogAdditionInfo>(__FILE__, __LINE__), lv, txt, __VA_ARGS__))
-#define DY_LOG_TRACE(txt,...)       (DY_LOG_LEVEL(dysv::level::TRACE, txt, __VA_ARGS__))
-#define DY_LOG_INFO(txt,...)        (DY_LOG_LEVEL(dysv::level::INFO,  txt, __VA_ARGS__))
-#define DY_LOG_WARN(txt,...)        (DY_LOG_LEVEL(dysv::level::WARN,  txt, __VA_ARGS__))
-#define DY_LOG_ERROR(txt,...)       (DY_LOG_LEVEL(dysv::level::ERROR, txt, __VA_ARGS__))
-#define DY_LOG_FATAL(txt,...)       (DY_LOG_LEVEL(dysv::level::FATAL, txt, __VA_ARGS__))
-    // 以下宏功能与default log function一致，但是为了样式统一也提供了宏
-#define SET_LEVEL(lv)           (DEFAULT_LOGGER->SetLevel(lv))
-#define SET_LOGGER(lg)          (DEFAULT_LOGGER->SetLogger(lg))
-#define SET_PATTERN(str)        (DEFAULT_LOGGER->SetPattern(str))
-#define ADD_SINK(sk)            (DEFAULT_LOGGER->AddSink(sk))
-#define CLEAN_SINK()            (DEFAULT_LOGGER->CleanSink())
-
-
 #define DEFAULT_PATTERN_STR "[%D %H:%M:%S:%s][%T][%F][%L][%P][%C]"
 
     /**
@@ -198,11 +181,15 @@ namespace dysv
     {
     public:
         using ptr = std::shared_ptr<LoggerSinkInterface>;
-        virtual ~LoggerSinkInterface();
-        virtual bool Sink(std::string content) = 0;
+        // virtual ~LoggerSinkInterface();
+        // virtual bool Sink(const std::string& content) = 0;
+        // std::string GetName();
+        LoggerSinkInterface();
         std::string GetName();
+        void Sink(const std::string& content);
     private:
         std::string m_name;
+        std::ostream* m_stream;
     };
 
     /**
@@ -219,7 +206,13 @@ namespace dysv
         // Logger &operator=(const Logger &lg) = delete;
 
         /// 落日志
-        void Log(LogAdditionInfo::ptr addtion_info, level::LevelEnum lv, const std::string& str);
+        void Log(LogAdditionInfo::ptr other_info, 
+                    level::LevelEnum lv, 
+                    const std::string& str);
+
+        void Log(LogAdditionInfo::ptr other_info, 
+                    level::LevelEnum lv, 
+                    const std::string& org_str, ...);
 
         /// 辅助函数
         void Reset();
@@ -285,5 +278,22 @@ namespace dysv
     void set_pattern(const std::string &str);
     void add_sink(LoggerSinkInterface::ptr sink);
     void clean_sink();
+
+        // log with format
+#define DEFAULT_LOGGER_NAME          "__root__"
+#define STD_COUT                     "__stdout__"
+#define DEFAULT_LOGGER               (dysv::LoggerMgr::GetInstance()->GetDefaultLog())
+#define DY_LOG_LEVEL(lv, txt, ...)   (DEFAULT_LOGGER->Log(std::make_shared<dysv::LogAdditionInfo>(__FILE__, __LINE__), lv, txt, __VA_ARGS__))
+#define DY_LOG_TRACE(txt,...)        (DY_LOG_LEVEL(dysv::level::TRACE, txt, __VA_ARGS__))
+#define DY_LOG_INFO(txt,...)         (DY_LOG_LEVEL(dysv::level::INFO,  txt, __VA_ARGS__))
+#define DY_LOG_WARN(txt,...)         (DY_LOG_LEVEL(dysv::level::WARN,  txt, __VA_ARGS__))
+#define DY_LOG_ERROR(txt,...)        (DY_LOG_LEVEL(dysv::level::ERROR, txt, __VA_ARGS__))
+#define DY_LOG_FATAL(txt,...)        (DY_LOG_LEVEL(dysv::level::FATAL, txt, __VA_ARGS__))
+    // 以下宏功能与default log function一致，但是为了样式统一也提供了宏
+#define SET_LEVEL(lv)                (DEFAULT_LOGGER->SetLevel(lv))
+#define SET_LOGGER(lg)               (DEFAULT_LOGGER->SetLogger(lg))
+#define SET_PATTERN(str)             (DEFAULT_LOGGER->SetPattern(str))
+#define ADD_SINK(sk)                 (DEFAULT_LOGGER->AddSink(sk))
+#define CLEAN_SINK()                 (DEFAULT_LOGGER->CleanSink())
 
 } // namespace dysv

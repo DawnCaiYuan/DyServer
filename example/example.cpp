@@ -16,7 +16,8 @@ int main(){
     //console: [2022/01/12 18:30:50:888][154][/home/dysv/example/example.cpp][14][WARN][this is a warning message!]
     
     /*format the log*/
-    dysv::DY_LOG_WARN("%s answer is %d!", "Ultimate", 42);
+    //dysv::LoggerMgr::GetInstance()->GetDefaultLog()->Log(std::make_shared<dysv::LogAdditionInfo>(__FILE__, __LINE__), dysv::level::WARN, "%s answer is %d!", "Ultimate", 42);
+    DY_LOG_WARN("%s answer is %d!", "Ultimate", 42);
     //console: [2022/01/12 18:30:50:888][154][/home/dysv/example/example.cpp][8][WARN][Ultimate answer is 42!]
     
 //   /*change default logger's pattern*/

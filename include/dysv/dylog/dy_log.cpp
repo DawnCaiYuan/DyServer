@@ -2,15 +2,7 @@
 
 namespace dysv{
     #define FOMATE_STR_BUFFER_SIZE  4096
-
-    /*******************Interface Method******************************************/
-    // void trace(const std::string& str){
-    //     DY_LOG_TRACE(str);
-    // }
-
-    // void warn(const std::string& str){
-    //     DY_LOG_WARN(str);
-    // }
+    #define MICROSECONDS_PER_MILLISECONDS 1000
 
     /*********************namespace level**************************************/
     namespace level{
@@ -122,9 +114,13 @@ namespace dysv{
     /*******************class LogAdditionInfo***********************************/
     LogAdditionInfo::LogAdditionInfo(const std::string& file, uint64_t line)
                                     : m_file_name(file), m_line_num(line){
-        m_thread_id = std::this_thread::get_id();
-        m_time = time(0);
-        m_elapse = 0;
+        m_thread_id = syscall(SYS_gettid);
+        timespec_get(&m_time, TIME_UTC);
+
+        // 格式化秒级时间
+        m_tm = localtime(&m_time.tv_sec);
+
+        m_elapse = clock();
     }
     std::string LogAdditionInfo::GetFileName() const {return m_file_name;}
     std::string LogAdditionInfo::GetLineNumber() const{ return std::to_string(m_line_num);}
@@ -133,12 +129,23 @@ namespace dysv{
         ss << m_thread_id;
         return ss.str();
     }
-    std::string LogAdditionInfo::GetDate() const{return "YYYY/MM/DD";}
-    std::string LogAdditionInfo::GetHours() const{return "HH";}
-    std::string LogAdditionInfo::GetMinutes() const{return "MM";}
-    std::string LogAdditionInfo::GetSeconds() const{return "SS";}
-    std::string LogAdditionInfo::GetMilliseconds() const{return "sss";}
-
+    std::string LogAdditionInfo::GetDate() const{
+        char tmp_buf[FOMATE_STR_BUFFER_SIZE];
+        sprintf(tmp_buf, "%04d/%02d/%02d", m_tm->tm_year + 1900, m_tm->tm_mon + 1, m_tm->tm_mday);
+        return std::string(tmp_buf);
+    }
+    std::string LogAdditionInfo::GetHours() const{
+        return std::to_string(m_tm->tm_hour);
+    }
+    std::string LogAdditionInfo::GetMinutes() const{
+        return std::to_string(m_tm->tm_min);
+    }
+    std::string LogAdditionInfo::GetSeconds() const{
+        return std::to_string(m_tm->tm_sec);
+    }
+    std::string LogAdditionInfo::GetMilliseconds() const{
+        return std::to_string(m_time.tv_nsec / MICROSECONDS_PER_MILLISECONDS);
+    }
 
     std::string LogAdditionInfo::GetAdditionInfoByPlaceholder(char plchld) const{
         return GetAdditionInfoByPlaceholder(placeholder::to_enum(plchld));
@@ -179,6 +186,9 @@ namespace dysv{
         m_pattern_str = LoggerPattern::GetDefaultPatternStr();
     }
 
+    LoggerPattern::LoggerPattern(const std::string& pt):m_pattern_str(pt){}
+
+    // 格式化+模式化
     std::string LoggerPattern::FmtAndPatternLog(LogAdditionInfo::ptr other_info, 
                                                 level::LevelEnum lv, 
                                                 const std::string& org_str, 
@@ -186,6 +196,7 @@ namespace dysv{
         return PatternLog(other_info, lv, FormatLog(org_str, strArgs));
     }
 
+    // 模式化
     std::string LoggerPattern::PatternLog(LogAdditionInfo::ptr other_info, 
                                             level::LevelEnum lv, 
                                             const std::string &content){
@@ -209,6 +220,7 @@ namespace dysv{
         return ans;
     }
 
+    // 格式化
     std::string LoggerPattern::FormatLog(const std::string &org_str, ...){
         va_list strArgs;
         va_start(strArgs, org_str);
@@ -228,6 +240,7 @@ namespace dysv{
         return content;
     }
 
+    // (static) 获取默认模式串
     std::string LoggerPattern::GetDefaultPatternStr() {
         return DEFAULT_PATTERN_STR;
     }
@@ -244,21 +257,158 @@ namespace dysv{
         m_pattern_str = LoggerPattern::GetDefaultPatternStr();
     }
 
-    /*********************class Logger**************************************/
-    Logger::Logger(const std::string& name){
-        m_name = name;
-        Logger::Reset();
-    }
+    /*********************class LoggerSinkInterface**************************************/
+    LoggerSinkInterface::LoggerSinkInterface(const std::string& name) : m_name(name){}
 
-    LoggerPattern::ptr Logger::GetPattern() { return m_pattern; }
-    void Logger::SetPattern(const std::string& placeholder){ 
-        // TODO
-    }
-    void Logger::SetPattern(LoggerPattern::ptr placeholder){ 
-        m_pattern = placeholder;
+    LoggerSinkInterface::~LoggerSinkInterface(){}
+
+    std::string LoggerSinkInterface::GetName(){
+        return m_name;
     }
     
+    StdLoggerSink::~StdLoggerSink(){ m_stream = nullptr; }
 
+    StdLoggerSink::StdLoggerSink(const std::string& name, StdLoggerSinkType tp)
+                                : LoggerSinkInterface(name), m_type(tp)
+    {
+        switch(tp){
+            case STD_COUT:
+                m_stream = &std::cout;
+                break;
+            case STD_ERROR:
+                m_stream = &std::cerr;
+                break;
+            default:
+                m_stream = &std::cout;
+        }
+    }
+    
+    void StdLoggerSink::Sink(const std::string& content){
+        (*m_stream) << content << std::endl;
+    }
+
+    StdLoggerSinkType StdLoggerSink::GetType(){
+        return m_type;
+    }
+
+    FileLoggerSink::FileLoggerSink(const std::string& name, const std::string& file_name)
+                                    : LoggerSinkInterface(name), m_file_name(file_name) 
+    {
+        Reopen();
+    }
+
+    FileLoggerSink::~FileLoggerSink(){
+        if(m_stream){
+            m_stream.close();
+        }
+    }
+
+    void FileLoggerSink::Sink(const std::string& content){
+        m_stream << content << std::endl;
+    }
+
+    bool FileLoggerSink::Reopen(){
+        if(m_stream) {
+            m_stream.close();
+        }
+        m_stream.open(m_file_name, std::ios::app);
+        return m_stream.is_open();
+    }
+
+    /*********************class Logger**************************************/
+    /// 构造函数、拷贝构造、赋值构造
+    Logger::Logger(const std::string& name){
+        m_name = name;
+        this->Reset();
+    }
+
+    Logger::Logger(const std::string &name, level::LevelEnum lv, const std::string& pt)
+                    :m_name(name), m_level(lv)
+    {
+        m_pattern = std::make_shared<LoggerPattern>(pt);
+    }
+
+    /// 落日志
+    void Logger::LogImpl(LogAdditionInfo::ptr other_info, 
+                    level::LevelEnum lv, 
+                    const std::string& org_str){
+        if(m_sinks.empty() || lv < m_level){
+            // std::cout << "logger named [" << m_name << "] have no sink!" << std::endl;
+            return;
+        }
+
+        std::string final_str = org_str;
+        if(other_info != nullptr){
+            final_str = m_pattern->PatternLog(other_info, lv, final_str);
+        }
+
+        for(const auto& single_sink : m_sinks){
+            (single_sink.second)->Sink(final_str);
+        }
+    }
+
+    void Logger::LogImplf(LogAdditionInfo::ptr other_info, 
+                    level::LevelEnum lv, 
+                    const std::string& org_str, 
+                    va_list vargs){
+        std::string formatted_str = m_pattern->FormatLog(org_str, vargs);
+        LogImpl(other_info, lv, formatted_str);
+    }
+
+    // no format, no pattern
+    void Logger::Log(level::LevelEnum lv, 
+                const std::string& str){
+        LogImpl(nullptr, lv, str);
+    }
+
+    // format, no pattern
+    void Logger::Logf(level::LevelEnum lv, 
+                const std::string& org_str, ...){
+        va_list str_args;
+        va_start(str_args, org_str);
+        LogImplf(nullptr, lv, org_str, str_args);
+        va_end(str_args);
+    }
+
+    // no format, pattern
+    void Logger::Log(LogAdditionInfo::ptr other_info, 
+                    level::LevelEnum lv, 
+                    const std::string& str){
+        LogImpl(other_info, lv, str);
+    }
+
+    // format, pattern
+    void Logger::Logf(LogAdditionInfo::ptr other_info, 
+                        level::LevelEnum lv, 
+                        const std::string& org_str, ...){
+        va_list str_args;
+        va_start(str_args, org_str);
+        LogImplf(other_info, lv, org_str, str_args);
+        va_end(str_args);
+    }
+
+    /// 辅助函数
+    void Logger::Reset(){
+        m_level = level::INFO;
+        m_sinks.clear();
+        m_pattern.reset(new LoggerPattern());
+        m_pattern->Reset2Default();
+    }
+
+    const std::string Logger::GetName(){
+        return m_name;
+    }
+    
+    /// 日志模式相关
+    LoggerPattern::ptr Logger::GetPattern() { return m_pattern; }
+    void Logger::SetPattern(const std::string& pattern_str){ 
+        m_pattern->SetPatternStr(pattern_str);
+    }
+    void Logger::SetPattern(LoggerPattern::ptr pattern_ptr){ 
+        m_pattern = pattern_ptr;
+    }
+    
+    /// 日志级别相关
     void Logger::SetLevel(level::LevelEnum lv){
         m_level = lv;
     }
@@ -271,66 +421,22 @@ namespace dysv{
         return m_level;
     }
 
-
-    void Logger::Reset(){
-        m_level = level::INFO;
-        m_sinks.clear();
-        m_pattern = std::make_shared<LoggerPattern>();
-        m_pattern->Reset2Default();
-    }
-
-    const std::string Logger::GetName(){
-        return m_name;
+    /// 日志sink相关
+    LoggerSinkInterface::ptr Logger::GetLoggerSink(const std::string &name){
+        return m_sinks[name];
     }
 
     void Logger::AddSink(LoggerSinkInterface::ptr sink){
         m_sinks.insert(std::make_pair(sink->GetName(), sink));
     }
 
-    /**
-     * @brief 通过传入的信息，将日志落入各sink中。
-     *          1. 判断若无sink或者日志级别不够则直接返回。
-     *          2. 将日志格式化。("hello %s", "dawn") -> "hello dawn".
-     *          3. 将日志模式化。[2022/01/27][INFO][hello dawn]
-     *          4. 将日志交由sink落地。
-     * 
-     * @param other_info 日志模式化时所需额外信息。通常包含文件名、行号等。
-     * @param lv 日志级别
-     * @param org_str 日志内容。例如,"Year %d, hello %s".
-     * @param ... 日志内容所需信息。例如, "2022", "dawn cy".
-     */
-    void Logger::Log(LogAdditionInfo::ptr other_info, 
-                        level::LevelEnum lv, 
-                        const std::string& org_str, ...){
-        if(m_sinks.empty() || lv < m_level){
-            // std::cout << "logger named [" << m_name << "] have no sink!" << std::endl;
-            return;
-        }
-
-        va_list strArgs;
-        va_start(strArgs, org_str);
-        std::string formatted_str = m_pattern->FmtAndPatternLog(other_info, lv, org_str, strArgs);
-        va_end(strArgs);
-
-        for(const auto& single_sink : m_sinks){
-            (single_sink.second)->Sink(formatted_str);
-        }
+    void Logger::DelSink(const std::string &name){
+        m_sinks.erase(name);
     }
-
-    /*********************class LoggerSinkInterface**************************************/
-    LoggerSinkInterface::LoggerSinkInterface(){
-        m_stream = &std::cout;
-        m_name = DEFAULT_LOGGER_NAME;
+    
+    void Logger::CleanSink(){
+        m_sinks.clear();
     }
-
-    std::string LoggerSinkInterface::GetName(){
-        return m_name;
-    }
-
-    void LoggerSinkInterface::Sink(const std::string& str){
-        (*m_stream) << str << std::endl;
-    }
-
   
     /*********************class LoggerManger**************************************/
     /**
@@ -347,7 +453,7 @@ namespace dysv{
         }
         m_default_logger = std::make_shared<dysv::Logger>(DEFAULT_LOGGER_NAME);
         
-        m_default_logger->AddSink(std::make_shared<LoggerSinkInterface>());
+        m_default_logger->AddSink(std::make_shared<StdLoggerSink>(STD_COUT_NAME, STD_COUT));
         m_loggers[m_default_logger->GetName()] = m_default_logger;
     }
 
@@ -355,4 +461,84 @@ namespace dysv{
         return m_default_logger;
     }
 
+    void LoggerManger::SetDefaultLog(Logger::ptr logger){
+        m_default_logger = logger;
+    }
+
+    bool LoggerManger::AddLogger(Logger::ptr logger){
+        m_loggers.insert(std::pair<std::string, Logger::ptr>(logger->GetName(), logger));
+    }
+
+    bool LoggerManger::DelLogger(const std::string &name){
+        m_loggers.erase(name);
+    }
+
+    Logger::ptr LoggerManger::GetLogger(const std::string& name){
+        return m_loggers[name];
+    }
+
+    // no format, no pattern
+    void trace(const std::string &str){
+        DEFAULT_LOGGER->Log(dysv::level::TRACE, str);
+    }
+    void info(const std::string &str){
+        DEFAULT_LOGGER->Log(dysv::level::INFO, str);
+    }
+    void warn(const std::string &str){
+        DEFAULT_LOGGER->Log(dysv::level::WARN, str);
+    }
+    void error(const std::string &str){
+        DEFAULT_LOGGER->Log(dysv::level::ERROR, str);
+    }
+    void fatal(const std::string &str){
+        DEFAULT_LOGGER->Log(dysv::level::FATAL, str);
+    }
+
+    // format, no pattern
+    void fmt_trace(const std::string &str, ...){
+        va_list vargs;
+        va_start(vargs, str);
+        DEFAULT_LOGGER->LogImplf(nullptr, dysv::level::TRACE, str, vargs);
+        va_end(vargs);
+    }
+    void fmt_info(const std::string &str, ...){
+        va_list vargs;
+        va_start(vargs, str);
+        DEFAULT_LOGGER->LogImplf(nullptr, dysv::level::INFO, str, vargs);
+        va_end(vargs);
+    }
+    void fmt_warn(const std::string &str, ...){
+        va_list vargs;
+        va_start(vargs, str);
+        DEFAULT_LOGGER->LogImplf(nullptr, dysv::level::WARN, str, vargs);
+        va_end(vargs);
+    }
+    void fmt_error(const std::string &str, ...){
+        va_list vargs;
+        va_start(vargs, str);
+        DEFAULT_LOGGER->LogImplf(nullptr, dysv::level::ERROR, str, vargs);
+        va_end(vargs);
+    }
+    void fmt_fatal(const std::string &str, ...){
+        va_list vargs;
+        va_start(vargs, str);
+        DEFAULT_LOGGER->LogImplf(nullptr, dysv::level::FATAL, str, vargs);
+        va_end(vargs);
+    }
+
+    void set_level(level::LevelEnum lv){
+        SET_LEVEL(lv);
+    }
+    void set_default_logger(Logger::ptr lg){
+        SET_DEFAULT_LOGGER(lg);
+    }
+    void set_default_pattern(const std::string &str){
+        SET_DEFAULT_PATTERN(str);
+    }
+    void add_sink(LoggerSinkInterface::ptr sink){
+        ADD_SINK(sink);
+    }
+    void clean_sink(){
+        CLEAN_SINK();
+    }
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <ctime>
 #include <stdio.h>
 #include <stdint.h>
 #include <memory>
@@ -12,6 +13,8 @@
 #include <iostream>
 #include <unistd.h>
 #include <sys/syscall.h>
+#include <unistd.h>
+#include <sys/types.h>
 #include <algorithm>
 #include <thread>
 #include <functional>
@@ -122,14 +125,16 @@ namespace dysv
         std::string GetMinutes() const;
         std::string GetSeconds() const;
         std::string GetMilliseconds() const;
+        // 通过占位符直接获取所需信息
         std::string GetAdditionInfoByPlaceholder(char plchld) const;
         std::string GetAdditionInfoByPlaceholder(placeholder::PlaceholderType plchld) const;
     private:
         std::string         m_file_name; // 记录日志处所在文件名
         uint64_t            m_line_num;  // 记录日志处所在文件行号
-        std::thread::id     m_thread_id; // 记录日志的线程ID
-        uint64_t            m_time;      // 记录日志的时间(TODO boost::posix_time)
-        uint64_t            m_elapse;    // 从线程启动到日志记录时已流逝的时间
+        pid_t               m_thread_id; // 记录日志的线程ID
+        timespec            m_time;      // 记录日志的时间(std::time_t tv_sec; long tv_nsec;)
+        tm*                 m_tm;        // 格式化的m_time秒级时间，减少解析次数(系统调用返回即为指针，此内存为静态的无需管理)
+        clock_t             m_elapse;    // 从线程启动到日志记录时已流逝的时间(微秒, 1s = 10^6)
     };
 
     /**
@@ -141,6 +146,7 @@ namespace dysv
     public:
         using ptr = std::shared_ptr<LoggerPattern>;
         LoggerPattern();
+        LoggerPattern(const std::string& pt);
         
         // 格式化+模式化
         std::string FmtAndPatternLog(LogAdditionInfo::ptr other_info, 
@@ -153,10 +159,8 @@ namespace dysv
                                 level::LevelEnum lv, 
                                 const std::string &content);
         
-        /**
-         * @brief 格式化日志串
-         * 
-         */
+
+        // 格式化
         static std::string FormatLog(const std::string &content, ...);
         static std::string FormatLog(const std::string &content, va_list args);
         
@@ -181,15 +185,45 @@ namespace dysv
     {
     public:
         using ptr = std::shared_ptr<LoggerSinkInterface>;
-        // virtual ~LoggerSinkInterface();
-        // virtual bool Sink(const std::string& content) = 0;
-        // std::string GetName();
-        LoggerSinkInterface();
+        LoggerSinkInterface(const std::string& name);
+        virtual ~LoggerSinkInterface();
+        
+        virtual void Sink(const std::string& content) = 0;
         std::string GetName();
-        void Sink(const std::string& content);
     private:
         std::string m_name;
-        std::ostream* m_stream;
+    };
+
+    enum StdLoggerSinkType {
+        STD_COUT = 0,   // 标准输出
+        STD_ERROR,      // 标准错误
+    };
+
+    class StdLoggerSink : public LoggerSinkInterface
+    {
+    public:
+        using ptr = std::shared_ptr<StdLoggerSink>;
+        StdLoggerSink(const std::string& name, StdLoggerSinkType tp);
+        virtual ~StdLoggerSink();
+        void Sink(const std::string& content) override;
+        StdLoggerSinkType GetType();
+    private:
+        std::ostream*       m_stream;
+        StdLoggerSinkType   m_type;
+    };
+
+
+    class FileLoggerSink : public LoggerSinkInterface
+    {
+    public:
+        using ptr = std::shared_ptr<FileLoggerSink>;
+        FileLoggerSink(const std::string& name, const std::string& file_name);
+        virtual ~FileLoggerSink();
+        void Sink(const std::string& content) override;
+        bool Reopen();
+    private:
+        std::string      m_file_name;
+        std::ofstream    m_stream;
     };
 
     /**
@@ -202,17 +236,39 @@ namespace dysv
         using ptr = std::shared_ptr<dysv::Logger>;
         /// 构造函数、拷贝构造、赋值构造
         Logger(const std::string &name);
+        Logger(const std::string &name, level::LevelEnum lv, const std::string& pt);
         // Logger(const Logger &lg) = delete;
         // Logger &operator=(const Logger &lg) = delete;
 
         /// 落日志
+        // no format, no pattern
+        void Log(level::LevelEnum lv, 
+                    const std::string& str);
+
+        // format, no pattern
+        void Logf(level::LevelEnum lv, 
+                    const std::string& org_str, ...);
+
+        // no format, pattern
         void Log(LogAdditionInfo::ptr other_info, 
                     level::LevelEnum lv, 
                     const std::string& str);
 
-        void Log(LogAdditionInfo::ptr other_info, 
+        // format, pattern
+        void Logf(LogAdditionInfo::ptr other_info, 
                     level::LevelEnum lv, 
                     const std::string& org_str, ...);
+
+        // implement of function Log
+        void LogImpl(LogAdditionInfo::ptr other_info, 
+                        level::LevelEnum lv, 
+                        const std::string& org_str);
+        
+        // implement of function Logf
+        void LogImplf(LogAdditionInfo::ptr other_info, 
+                        level::LevelEnum lv, 
+                        const std::string& org_str, 
+                        va_list vargs);
 
         /// 辅助函数
         void Reset();
@@ -220,11 +276,10 @@ namespace dysv
 
         /// 日志模式相关
         LoggerPattern::ptr GetPattern();
-        void SetPattern(const std::string &placeholder);
-        void SetPattern(LoggerPattern::ptr placeholder);
+        void SetPattern(const std::string &pattern_str);
+        void SetPattern(LoggerPattern::ptr pattern_ptr);
 
         /// 日志级别相关
-        level::LevelEnum getLevel();
         void SetLevel(level::LevelEnum lv);
         void SetLevel(const std::string &lv);
         level::LevelEnum GetLevel();
@@ -232,7 +287,7 @@ namespace dysv
         /// 日志sink相关
         LoggerSinkInterface::ptr GetLoggerSink(const std::string &name);
         void AddSink(LoggerSinkInterface::ptr sink);
-        void DelSink(LoggerSinkInterface::ptr sink);
+        void DelSink(const std::string &name);
         void CleanSink();
     private:
         std::string m_name;
@@ -240,7 +295,6 @@ namespace dysv
         std::map<std::string, LoggerSinkInterface::ptr> m_sinks;
         LoggerPattern::ptr m_pattern;
     };
-
 
 
     /**
@@ -254,7 +308,11 @@ namespace dysv
 
         dysv::Logger::ptr GetDefaultLog();
 
-        bool AddLogger(const std::string &name);
+        void SetDefaultLog(Logger::ptr logger);
+
+        bool AddLogger(Logger::ptr logger);
+
+        bool DelLogger(const std::string &name);
 
         Logger::ptr GetLogger(const std::string& name);
     private:
@@ -266,34 +324,52 @@ namespace dysv
 
     using LoggerMgr = dysv::Singleton<LoggerManger>;
 
-    // default log function.
+#define DEFAULT_LOGGER_NAME              "__root__"
+#define STD_COUT_NAME                    "__stdout__"
+#define DEFAULT_LOGGER_MANGER            (dysv::LoggerMgr::GetInstance())
+#define DEFAULT_LOGGER                   (dysv::LoggerMgr::GetInstance()->GetDefaultLog())
+#define ADD_ADDITION_INFO                std::make_shared<dysv::LogAdditionInfo>(__FILE__, __LINE__)
+
+    // no format, no pattern
     void trace(const std::string &str);
     void info(const std::string &str);
     void warn(const std::string &str);
     void error(const std::string &str);
     void fatal(const std::string &str);
 
+    // format, no pattern
+    void fmt_trace(const std::string &str, ...);
+    void fmt_info(const std::string &str, ...);
+    void fmt_warn(const std::string &str, ...);
+    void fmt_error(const std::string &str, ...);
+    void fmt_fatal(const std::string &str, ...);
+
     void set_level(level::LevelEnum lv);
-    void set_logger(Logger lg);
-    void set_pattern(const std::string &str);
+    void set_default_logger(Logger::ptr lg);
+    void set_default_pattern(const std::string &str);
     void add_sink(LoggerSinkInterface::ptr sink);
     void clean_sink();
 
-        // log with format
-#define DEFAULT_LOGGER_NAME          "__root__"
-#define STD_COUT                     "__stdout__"
-#define DEFAULT_LOGGER               (dysv::LoggerMgr::GetInstance()->GetDefaultLog())
-#define DY_LOG_LEVEL(lv, txt, ...)   (DEFAULT_LOGGER->Log(std::make_shared<dysv::LogAdditionInfo>(__FILE__, __LINE__), lv, txt, __VA_ARGS__))
-#define DY_LOG_TRACE(txt,...)        (DY_LOG_LEVEL(dysv::level::TRACE, txt, __VA_ARGS__))
-#define DY_LOG_INFO(txt,...)         (DY_LOG_LEVEL(dysv::level::INFO,  txt, __VA_ARGS__))
-#define DY_LOG_WARN(txt,...)         (DY_LOG_LEVEL(dysv::level::WARN,  txt, __VA_ARGS__))
-#define DY_LOG_ERROR(txt,...)        (DY_LOG_LEVEL(dysv::level::ERROR, txt, __VA_ARGS__))
-#define DY_LOG_FATAL(txt,...)        (DY_LOG_LEVEL(dysv::level::FATAL, txt, __VA_ARGS__))
-    // 以下宏功能与default log function一致，但是为了样式统一也提供了宏
+    // format, pattern
+#define DY_LOG_FMT_LEVEL(lv, txt, ...)   (DEFAULT_LOGGER->Logf(std::make_shared<dysv::LogAdditionInfo>(__FILE__, __LINE__), lv, txt, __VA_ARGS__))
+#define DY_LOG_FMT_TRACE(txt,...)        (DY_LOG_FMT_LEVEL(dysv::level::TRACE, txt, __VA_ARGS__))
+#define DY_LOG_FMT_INFO(txt,...)         (DY_LOG_FMT_LEVEL(dysv::level::INFO,  txt, __VA_ARGS__))
+#define DY_LOG_FMT_WARN(txt,...)         (DY_LOG_FMT_LEVEL(dysv::level::WARN,  txt, __VA_ARGS__))
+#define DY_LOG_FMT_ERROR(txt,...)        (DY_LOG_FMT_LEVEL(dysv::level::ERROR, txt, __VA_ARGS__))
+#define DY_LOG_FMT_FATAL(txt,...)        (DY_LOG_FMT_LEVEL(dysv::level::FATAL, txt, __VA_ARGS__))
+
+    // no format, pattern
+#define DY_LOG_LEVEL(lv, txt)   (DEFAULT_LOGGER->Log(std::make_shared<dysv::LogAdditionInfo>(__FILE__, __LINE__), lv, txt))
+#define DY_LOG_TRACE(txt)       (DY_LOG_LEVEL(dysv::level::TRACE, txt))
+#define DY_LOG_INFO(txt)        (DY_LOG_LEVEL(dysv::level::INFO,  txt))
+#define DY_LOG_WARN(txt)        (DY_LOG_LEVEL(dysv::level::WARN,  txt))
+#define DY_LOG_ERROR(txt)       (DY_LOG_LEVEL(dysv::level::ERROR, txt))
+#define DY_LOG_FATAL(txt)       (DY_LOG_LEVEL(dysv::level::FATAL, txt))
+
 #define SET_LEVEL(lv)                (DEFAULT_LOGGER->SetLevel(lv))
-#define SET_LOGGER(lg)               (DEFAULT_LOGGER->SetLogger(lg))
-#define SET_PATTERN(str)             (DEFAULT_LOGGER->SetPattern(str))
+#define SET_DEFAULT_LOGGER(lg)       (DEFAULT_LOGGER_MANGER->SetDefaultLog(lg))
+#define SET_DEFAULT_PATTERN(str)     (DEFAULT_LOGGER->SetPattern(str))
+#define DEL_SINK(sk_name)            (DEFAULT_LOGGER->DelSink(sk_name))
 #define ADD_SINK(sk)                 (DEFAULT_LOGGER->AddSink(sk))
 #define CLEAN_SINK()                 (DEFAULT_LOGGER->CleanSink())
-
 } // namespace dysv

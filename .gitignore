@@ -2,3 +2,5 @@
 build
 bin
 example/build
+.tmp_file.txt.swp
+CMakeFiles/cmake.check_cache

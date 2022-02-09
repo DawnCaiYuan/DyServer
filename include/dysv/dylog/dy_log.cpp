@@ -152,22 +152,22 @@ namespace dysv{
     }
 
     std::string LogAdditionInfo::GetAdditionInfoByPlaceholder(placeholder::PlaceholderType plchld) const{
-        using PlcFunc = std::function<std::string(void)>;
+        using PlcFunc = std::function<std::string(const LogAdditionInfo*)>;
         using PairOfHoldAndFunc = std::pair<placeholder::PlaceholderType, PlcFunc>;
         static std::vector<PairOfHoldAndFunc> s_placeholder2func = {
-            std::make_pair(placeholder::n_NEW_LINE,       []() -> std::string {return "\n";}),
-            std::make_pair(placeholder::t_TAB,            []() -> std::string {return "\t";}),
-            std::make_pair(placeholder::T_THREAD_ID,      std::bind(&LogAdditionInfo::GetThreadId, this)),
-            std::make_pair(placeholder::F_FILE_NAME,      std::bind(&LogAdditionInfo::GetFileName, this)),
-            std::make_pair(placeholder::L_LINE,           std::bind(&LogAdditionInfo::GetLineNumber, this)),
-            std::make_pair(placeholder::P_PRIORITY,       []() -> std::string {return "Unsupported";}),
-            std::make_pair(placeholder::C_CONTENT,        []() -> std::string {return "Unsupported";}),
-            std::make_pair(placeholder::D_DATE,           std::bind(&LogAdditionInfo::GetDate, this)),
-            std::make_pair(placeholder::H_HOUR,           std::bind(&LogAdditionInfo::GetHours,this)),
-            std::make_pair(placeholder::M_MINUTE,         std::bind(&LogAdditionInfo::GetMinutes,this)),
-            std::make_pair(placeholder::S_SECOND,         std::bind(&LogAdditionInfo::GetSeconds,this)),
-            std::make_pair(placeholder::s_MILLISECOND,    std::bind(&LogAdditionInfo::GetMilliseconds,this)),
-            std::make_pair(placeholder::MAX_PATTERN,      []() -> std::string {return "Unsupported";}),
+            std::make_pair(placeholder::n_NEW_LINE,       [](const LogAdditionInfo* pLgInfo) -> std::string {return "\n";}),
+            std::make_pair(placeholder::t_TAB,            [](const LogAdditionInfo* pLgInfo) -> std::string {return "\t";}),
+            std::make_pair(placeholder::T_THREAD_ID,      [](const LogAdditionInfo* pLgInfo) -> std::string {return pLgInfo->GetThreadId();}),
+            std::make_pair(placeholder::F_FILE_NAME,      [](const LogAdditionInfo* pLgInfo) -> std::string {return pLgInfo->GetFileName();}),
+            std::make_pair(placeholder::L_LINE,           [](const LogAdditionInfo* pLgInfo) -> std::string {return pLgInfo->GetLineNumber();}),
+            std::make_pair(placeholder::P_PRIORITY,       [](const LogAdditionInfo* pLgInfo) -> std::string {return "Unsupported";}),
+            std::make_pair(placeholder::C_CONTENT,        [](const LogAdditionInfo* pLgInfo) -> std::string {return "Unsupported";}),
+            std::make_pair(placeholder::D_DATE,           [](const LogAdditionInfo* pLgInfo) -> std::string {return pLgInfo->GetDate();}),
+            std::make_pair(placeholder::H_HOUR,           [](const LogAdditionInfo* pLgInfo) -> std::string {return pLgInfo->GetHours();}), 
+            std::make_pair(placeholder::M_MINUTE,         [](const LogAdditionInfo* pLgInfo) -> std::string {return pLgInfo->GetMinutes();}), 
+            std::make_pair(placeholder::S_SECOND,         [](const LogAdditionInfo* pLgInfo) -> std::string {return pLgInfo->GetSeconds();}), 
+            std::make_pair(placeholder::s_MILLISECOND,    [](const LogAdditionInfo* pLgInfo) -> std::string {return pLgInfo->GetMilliseconds();}), 
+            std::make_pair(placeholder::MAX_PATTERN,      [](const LogAdditionInfo* pLgInfo) -> std::string {return "Unsupported";}),
         };
         auto target = std::lower_bound(s_placeholder2func.begin(), s_placeholder2func.end(), 
                                         plchld, 
@@ -178,7 +178,7 @@ namespace dysv{
             std::cout << ("Unspported type" + std::string(1, placeholder::to_char(plchld)));
             return "Unsupported";
         }
-        return (target->second)();
+        return (target->second)(this);
     }
 
   /*********************class LoggerPattern**************************************/

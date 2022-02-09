@@ -6,9 +6,9 @@ set(CMAKE_BUILD_TYPE DEBUG)
 #[[
 处理子模块，生成静态库
 #]]
-set(TOP_DIR ${CMAKE_CURRENT_LIST_DIR}/../)
+set(TOP_DIR ${CMAKE_CURRENT_LIST_DIR}/../../)
 add_subdirectory(${TOP_DIR}/include/dysv dysv_dir)
 
 # 生成example
-add_executable(dysv_example example.cpp)
-target_link_libraries(dysv_example PRIVATE libdysv)
+add_executable(dysv_log_example log_example.cpp)
+target_link_libraries(dysv_log_example PRIVATE libdysv)
